@@ -18,12 +18,14 @@
 ## This script provides automated downloading of images from web pages:
 ## • Extracts all JPG image URLs from given webpage
 ## • Downloads images with sequential numbering
-## • Provides configurable options:
-##   - Custom output directory
-##   - Adjustable filename prefix length
-##   - Verbose mode
-##   - URL list retention
-## ---------------------------------------
+## • Provides configurable options: Custom output directory, Adjustable 
+##   filename prefix length, Verbose mode, log-file
+## Usage:
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## With custom parent directory (creates /data/pics-gallery/)
+## ./pics-down.sh -o /data/ https://example.com/gallery
+## Verbose mode with URL list kept
+## ./pics-down.sh -v -k -p 3 https://example.com/images
 ##########################################
 
 # ==============================================
@@ -39,7 +41,7 @@ PURPLE="\033[38;2;85;85;255m\033[48;2;21;16;46m" # Interactions
 
 # Default settings (override with flags)
 PREFIX_LEN=2
-OUTPUT_DIR=""
+OUTPUT_DIR="."
 VERBOSE=false
 KEEP_URLS=false
 USER_AGENT="Mozilla/5.0"
@@ -49,10 +51,9 @@ STATIC_PREFIX="pics-"  # Statischer Präfix für Ordner
 # ==============================================
 # FUNCTIONS
 # ==============================================
-
 init_logging() {
-    LOG_PATH="${OUTPUT_DIR}${STATIC_PREFIX}${folder_name}/${LOG_FILE}"
-    mkdir -p "$(dirname "$LOG_PATH")"
+    mkdir -p "$FULL_OUTPUT_PATH"
+    LOG_PATH="${FULL_OUTPUT_PATH}/${LOG_FILE}"
     echo "=== Download Log $(date) ===" > "$LOG_PATH"
 }
 
@@ -72,16 +73,12 @@ show_help() {
     echo
     echo -e "${PURPLE}Options:${RESET}"
     echo "  -p LENGTH   Filename prefix length (default: ${PREFIX_LEN})"
-    echo "  -o DIR      Output directory (default: ${OUTPUT_DIR})"
-    echo "  -u AGENT    Set custom User-Agent (default: ${USER_AGENT})"
+    echo "  -o DIR      Parent output directory (default: current dir)"
     echo "  -v          Verbose mode"
     echo "  -k          Keep URL list after download"
     echo "  -h          Show this help"
-    echo
-    echo -e "${PURPLE}Example:${RESET}"
-    echo "  $0 -p 2 https://c3d2.de/shop.html"
-    echo "  $0 -o /data/ -p 3 https://example.com/gallery/"
- }
+}
+
 
 extract_folder_name() {
 #B: https://example.com/path/to/shop.html?param=1 wird zu shop
@@ -92,18 +89,6 @@ extract_folder_name() {
     echo "${name//[^a-zA-Z0-9_-]/_}"  # Ersetzt Sonderzeichen durch _
 }
 
-validate_url() {
-    [[ "$1" =~ ^https?:// ]] || {
-        show_message "$RED" "Error: Invalid URL format - must start with http:// or https://"
-        return 1
-    }
-}
-
-build_output_path() {
-    local base_dir="${1:-.}"
-    local url_name="$2"
-    echo "${base_dir%/}/${FOLDER_PREFIX}${url_name}"
-}
 
 validate_url() {
     [[ "$1" =~ ^https?:// ]] || {
@@ -112,15 +97,15 @@ validate_url() {
     }
 }
 
+
 # ==============================================
 # MAIN 
 # ==============================================
-
-while getopts ":p:o:u:vkh" opt; do
+# Process options
+while getopts ":p:o:vkh" opt; do
     case $opt in
         p) PREFIX_LEN="$OPTARG" ;;
         o) OUTPUT_DIR="$OPTARG" ;;
-        u) USER_AGENT="$OPTARG" ;;
         v) VERBOSE=true ;;
         k) KEEP_URLS=true ;;
         h) show_help; exit 0 ;;
@@ -139,17 +124,16 @@ shift $((OPTIND-1))
 url="$1"
 validate_url "$url" || exit 1
 
-
 # Set up paths
 folder_name=$(extract_folder_name "$url")
-FULL_OUTPUT_PATH=$(build_output_path "$OUTPUT_DIR" "$folder_name")
+FULL_OUTPUT_PATH="${FOLDER_PREFIX}${folder_name}"
 
 # Initialize
 init_logging
 log "Starting download from: $url"
 log "Output path: $FULL_OUTPUT_PATH"
 
-# Create output directory
+# Create and change to output directory
 mkdir -p "$FULL_OUTPUT_PATH" || {
     log "Failed to create directory: $FULL_OUTPUT_PATH"
     exit 1
@@ -178,22 +162,29 @@ awk -v base="${url%/*}" '{
 
 # Download images
 log "Downloading $(wc -l < image_urls.txt) images"
-awk -v pre="$prefix" -v log="$LOG_PATH" '{
+awk -v pre="$prefix" -v log_file="$LOG_PATH" '{
     ext = ".jpg";
     if (match($0, /\.[a-zA-Z0-9]+$/)) ext = substr($0, RSTART, RLENGTH);
     printf "wget --progress=bar:force -O %s-%03d%s %s 2>&1 | tee -a %s\n", 
-           pre, NR, ext, $0, log;
+           pre, NR, ext, $0, log_file;
 }' image_urls.txt | bash
 
 # Cleanup
-$KEEP_URLS || { rm image_urls.txt; log "Removed temporary URL list"; }
+if ! $KEEP_URLS; then
+    rm image_urls.txt
+    log "Removed temporary URL list"
+fi
 
 # Final output
 show_message "$GREEN" "\nDownload completed!"
 show_message "$VIOLET" "Files saved to: $FULL_OUTPUT_PATH"
-ls -1 "${prefix}"-*.* | while read -r f; do
-    show_message "$PURPLE" "• $f"
-done
+downloaded_files=$(ls -1 "${prefix}"-*.* 2>/dev/null | wc -l)
+if [[ $downloaded_files -gt 0 ]]; then
+    ls -1 "${prefix}"-*.* | while read -r f; do
+        show_message "$PURPLE" "$f"
+    done
+else
+    show_message "$RED" "No files were downloaded!"
+fi
 show_message "$BLUE" "\nLog saved to: $LOG_PATH"
-
 
