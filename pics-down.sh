@@ -28,68 +28,101 @@
 ## ./pics-down.sh -v -k -p 3 https://example.com/images
 ##########################################
 
-# ==============================================
-# CONFIGURATION
-# ==============================================
-# UI Colors
-RESET="\e[0m"
-VIOLET="\033[38;2;255;0;53m\033[48;2;34;0;82m"   # Prompts
-GREEN="\033[38;2;0;255;0m\033[48;2;0;25;2m"      # Success
-RED="\033[38;2;240;138;100m\033[48;2;147;18;61m" # Errors
-BLUE="\033[38;2;100;149;237m"                    # Info
-PURPLE="\033[38;2;85;85;255m\033[48;2;21;16;46m" # Interactions
-
-# Default settings (override with flags)
-PREFIX_LEN=2
-OUTPUT_DIR="."
-VERBOSE=false
-KEEP_URLS=false
-USER_AGENT="Mozilla/5.0"
-LOG_FILE="pics-down.log"
-STATIC_PREFIX="pics-"  # Statischer Präfix für Ordner
+#!/usr/bin/env bash
 
 # ==============================================
-# FUNCTIONS
+# CONFIGURATION SECTION
 # ==============================================
+
+# Color definitions for terminal output
+RESET="\e[0m"                  # Reset all formatting
+VIOLET="\033[38;2;255;0;53m\033[48;2;34;0;82m"   # For prompts
+GREEN="\033[38;2;0;255;0m\033[48;2;0;25;2m"      # Success messages
+RED="\033[38;2;240;138;100m\033[48;2;147;18;61m" # Error messages
+BLUE="\033[38;2;100;149;237m"                    # Information text
+PURPLE="\033[38;2;85;85;255m\033[48;2;21;16;46m" # User interactions
+
+# Default settings (can be overridden with command line options)
+PREFIX_LEN=2                   # Number of digits for sequential numbering (01, 02, etc.)
+OUTPUT_DIR="."                 # Default output directory (current directory)
+VERBOSE=false                  # Verbose output flag
+KEEP_URLS=false                # Keep URL list after download
+USER_AGENT="Mozilla/5.0"       # Default user agent for wget
+LOG_FILE="pics-down.log"        # Log file name
+STATIC_PREFIX=""               # Static prefix for filenames (empty by default)
+
+# ==============================================
+# FUNCTION DEFINITIONS
+# ==============================================
+
+# Initialize logging system
+# Creates log file and writes header
 init_logging() {
-    mkdir -p "$FULL_OUTPUT_PATH"
-    LOG_PATH="${FULL_OUTPUT_PATH}/${LOG_FILE}"
+	mkdir -p "$(dirname "$LOG_PATH")" || {
+        echo -e "${RED}Failed to create directory: $FULL_OUTPUT_PATH${RESET}"
+        exit 1
+    }
+    LOG_PATH="${FULL_OUTPUT_PATH%/}/${LOG_FILE}"
     echo "=== Download Log $(date) ===" > "$LOG_PATH"
+    echo "URL: $url" >> "$LOG_PATH"
+    echo "Output Directory: $FULL_OUTPUT_PATH" >> "$LOG_PATH"
+    echo "DEBUG: LOG_PATH is set to $LOG_PATH"
 }
 
+# Log a message to both log file and console (if verbose)
+# Arguments:
+#   $1 - message to log
 log() {
     local message="$1"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_PATH"
-    $VERBOSE && echo -e "${BLUE}LOG:${RESET} $message"
+    if $VERBOSE; then
+        echo -e "${BLUE}LOG:${RESET} $message"
+    fi
 }
 
+# Display colored message to console
+# Arguments:
+#   $1 - color code
+#   $2 - message
 show_message() {
     echo -e "${1}${2}${RESET}"
 }
 
+# Display help information
 show_help() {
     echo -e "${PURPLE}Usage:${RESET}"
     echo "  $0 [OPTIONS] <URL>"
     echo
     echo -e "${PURPLE}Options:${RESET}"
-    echo "  -p LENGTH   Filename prefix length (default: ${PREFIX_LEN})"
-    echo "  -o DIR      Parent output directory (default: current dir)"
+    echo "  -p LENGTH   Number of digits for sequential numbering (default: ${PREFIX_LEN})"
+    echo "  -o DIR      Output directory (default: current directory)"
+    echo "  -s PREFIX   Static filename prefix (default: none)"
     echo "  -v          Verbose mode"
     echo "  -k          Keep URL list after download"
     echo "  -h          Show this help"
+    echo
+    echo -e "${PURPLE}Examples:${RESET}"
+    echo "  $0 -p 2 https://example.com/gallery/"
+    echo "  $0 -o ~/downloads -s vacation_ https://example.com/photos"
 }
 
-
-extract_folder_name() {
+# Extract folder name from URL
+# Arguments:
+#   $1 - URL to process
+# Returns:
+#   Cleaned directory name based on URL 
 #B: https://example.com/path/to/shop.html?param=1 wird zu shop
-    local url="$1"             # URL als Parameter
-    local name="${url##*/}"    # Entfernt alles bis zum letzten /
-    name="${name%%\?*}"        # Entfernt Query-Parameter (ab ?)
-    name="${name%.*}"            # Remove extension
-    echo "${name//[^a-zA-Z0-9_-]/_}"  # Ersetzt Sonderzeichen durch _
+extract_folder_name() {
+    local url="$1"
+    local name="${url##*/}"      # Extract everything after last /
+    name="${name%%\?*}"          # Remove query parameters
+    name="${name%.*}"            # Remove file extension
+    echo "${name//[^a-zA-Z0-9_-]/_}" # Replace special chars with _
 }
 
-
+# Validate URL format
+# Arguments:
+#   $1 - URL to validate
 validate_url() {
     [[ "$1" =~ ^https?:// ]] || {
         show_message "$RED" "Error: URL must start with http:// or https://"
@@ -97,94 +130,109 @@ validate_url() {
     }
 }
 
-
 # ==============================================
 # MAIN 
 # ==============================================
-# Process options
-while getopts ":p:o:vkh" opt; do
+
+# Process command line options
+while getopts ":p:o:s:vkh" opt; do
     case $opt in
-        p) PREFIX_LEN="$OPTARG" ;;
-        o) OUTPUT_DIR="$OPTARG" ;;
-        v) VERBOSE=true ;;
-        k) KEEP_URLS=true ;;
-        h) show_help; exit 0 ;;
+        p) PREFIX_LEN="$OPTARG" ;;     # Set number of digits for numbering
+        o) OUTPUT_DIR="$OPTARG" ;;     # Set output directory
+        s) STATIC_PREFIX="$OPTARG" ;;  # Set static filename prefix
+        v) VERBOSE=true ;;             # Enable verbose mode
+        k) KEEP_URLS=true ;;           # Keep URL list after download
+        h) show_help; exit 0 ;;        # Show help
         \?) show_message "$RED" "Invalid option: -$OPTARG"; exit 1 ;;
         :) show_message "$RED" "Option -$OPTARG requires an argument."; exit 1 ;;
     esac
 done
-
+shift $((OPTIND-1))  # Remove processed options from arguments
 # OPTIND: Eine Shell-Variable, die den Index des nächsten zu verarbeitenden 
-# Arguments speichert. Funktion: Verschiebt die Argumente, sodass nur n
-# icht-optionale Argumente (wie die URL) übrig bleiben 
-shift $((OPTIND-1))
+# Arguments speichert. Funktion: Verschiebt die Argumente, sodass nur 
+# nicht-optionale Argumente (wie die URL) übrig bleiben 
 
-# Validate URL
-[[ $# -eq 0 ]] && { show_help; exit 1; }
+# Validate URL argument
+if [[ $# -eq 0 ]]; then
+    show_help
+    show_message "$RED" "Error: No URL specified"
+    exit 1
+fi
 url="$1"
 validate_url "$url" || exit 1
 
-# Set up paths
+# Set up output paths
 folder_name=$(extract_folder_name "$url")
-FULL_OUTPUT_PATH="${FOLDER_PREFIX}${folder_name}"
+FULL_OUTPUT_PATH="${OUTPUT_DIR%/}/${folder_name}"
 
-# Initialize
+# Initialize logging system
 init_logging
-log "Starting download from: $url"
-log "Output path: $FULL_OUTPUT_PATH"
+log "Starting download process"
+log "Source URL: $url"
+log "Output directory: $FULL_OUTPUT_PATH"
 
-# Create and change to output directory
+# Create output directory if it doesn't exist
 mkdir -p "$FULL_OUTPUT_PATH" || {
-    log "Failed to create directory: $FULL_OUTPUT_PATH"
+    log "Failed to create output directory: $FULL_OUTPUT_PATH"
     exit 1
 }
 cd "$FULL_OUTPUT_PATH" || exit 1
 
-# Extract filename prefix
-prefix=$(echo "$folder_name" | head -c "$PREFIX_LEN")
-
-# Extract image URLs
-log "Extracting image URLs"
+# Extract image URLs from webpage
+log "Extracting image URLs from webpage"
 wget --header="User-Agent: $USER_AGENT" -qO- "$url" | \
-grep -oP '(?<=src=")[^"]*\.(jpg|jpeg|png|webp)' | \
+grep -oP '(?<=src=")[^"]*\.(jpg|jpeg|png|webp|gif)' | \
 awk -v base="${url%/*}" '{
-    if ($0 ~ /^https?:\/\//) print $0;
-    else if ($0 ~ /^\//) print "https://" gensub(/^https?:\/\/([^/]+).*/, "\\1", "g", base) $0;
-    else print base "/" $0;
+    # Handle different URL formats:
+    if ($0 ~ /^https?:\/\//) print $0;          # Absolute URLs
+   #  else if ($0 ~ /^\//) print "https://" gensub(/^https?:\/\/([^/]+).*/, "\\1", "g", base) $0;  # Root-relative URLs
+    else print base "/" $0;                     # Document-relative URLs
 }' | sort -u > image_urls.txt
 
-# Verify URLs
-[[ -s image_urls.txt ]] || {
-    log "No image URLs found!"
+# Verify we found image URLs
+if [[ ! -s image_urls.txt ]]; then
+    log "No image URLs found on the page"
     show_message "$RED" "Error: No images found on the page"
     exit 1
-}
+fi
+log "Found $(wc -l < image_urls.txt) image URLs"
 
-# Download images
-log "Downloading $(wc -l < image_urls.txt) images"
-awk -v pre="$prefix" -v log_file="$LOG_PATH" '{
-    ext = ".jpg";
-    if (match($0, /\.[a-zA-Z0-9]+$/)) ext = substr($0, RSTART, RLENGTH);
-    printf "wget --progress=bar:force -O %s-%03d%s %s 2>&1 | tee -a %s\n", 
-           pre, NR, ext, $0, log_file;
+# Download images with proper numbering and original extensions
+log "Starting image download"
+awk -v prefix="$STATIC_PREFIX" -v len="$PREFIX_LEN" -v log_file="$LOG_PATH" '{
+    # Extract original extension
+    if (match($0, /\.[a-zA-Z0-9]+$/)) {
+        ext = substr($0, RSTART, RLENGTH);
+    } else {
+        ext = ".jpg";  # Default extension if none found
+    }
+    
+    # Generate sequential number with leading zeros
+    seq = sprintf("%0" len "d", NR);
+    
+    # Build output filename and download command
+    printf "wget --progress=bar:force -O %s%s%s %s 2>&1 | tee -a \"%s\"\n", prefix, seq, ext, $0, log_file;
 }' image_urls.txt | bash
 
-# Cleanup
+# Clean up temporary files
 if ! $KEEP_URLS; then
     rm image_urls.txt
     log "Removed temporary URL list"
 fi
 
-# Final output
-show_message "$GREEN" "\nDownload completed!"
+# Display final results
+show_message "$GREEN" "\nDownload completed successfully!"
 show_message "$VIOLET" "Files saved to: $FULL_OUTPUT_PATH"
-downloaded_files=$(ls -1 "${prefix}"-*.* 2>/dev/null | wc -l)
+
+# List downloaded files with proper numbering
+downloaded_files=$(ls ${STATIC_PREFIX}*.* 2>/dev/null | wc -l)
 if [[ $downloaded_files -gt 0 ]]; then
-    ls -1 "${prefix}"-*.* | while read -r f; do
+    ls ${STATIC_PREFIX}*.* | while read -r f; do
         show_message "$PURPLE" "$f"
     done
 else
-    show_message "$RED" "No files were downloaded!"
+    show_message "$RED" "Warning: No files were downloaded!"
 fi
-show_message "$BLUE" "\nLog saved to: $LOG_PATH"
+
+show_message "$BLUE" "\nDetailed log saved to: $LOG_PATH"
 
