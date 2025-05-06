@@ -161,6 +161,8 @@ download_images() {
                         local new_filename="${formatted_counter}_${filename}"
                         log "Downloading: $image_url as $new_filename"
                         # Lade das Bild herunter und benenne es um
+                        
+                        ###################################################
                         wget -q -O "$OUT_DIR/$new_filename" "$image_url"
                         if [ $? -ne 0 ]; then
                            log "Failed to download $image_url"
@@ -233,9 +235,9 @@ download_images "png" "$URL"
 download_images "PNG" "$URL"
 download_images "svg" "$URL"
 download_images "SVG" "$URL"
-# Füge hier weitere Bildtypen hinzu, falls erforderlich (z.B. gif, webp, etc.)
+# weitere Bildtypen hinzu, falls erforderlich (z.B. gif, webp, etc.)
 
-# 7. Zeige die heruntergeladenen Dateien an.
+# 7. Zeige die heruntergeladene Dateien an.
 show_message "$GREEN" "Download abgeschlossen!"
 show_message "$VIOLET" "Dateien gespeichert in: $OUT_DIR"
 

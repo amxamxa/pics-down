@@ -66,7 +66,7 @@ log "Starting download from $URL"
 IMG_EXTENSIONS="jpg|jpeg|png|gif|svg|webp|bmp"
 
 show_message "$BLUE" "Extracting image URLs..."
-img_list=$(wget -qO- "$URL" | grep -oP '(?<=src=")[^"\']*\.('$IMG_EXTENSIONS')' | sort -u)
+img_list=$(wget -qO- "$URL" | grep -oP '(?<=src=")[^"\']*\.("jpg|jpeg|png|gif|svg|webp|bmp")' | sort -u)
 
 if [[ -z "$img_list" ]]; then
     show_message "$RED" "No images found. Exiting."
